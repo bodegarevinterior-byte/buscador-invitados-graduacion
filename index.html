@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Listado de Invitados</title>
+  <style>
+    :root{
+      --gold:#d4af37;
+      --bg:#0d0d0d;
+      --panel:#1a1a1a;
+      --text:#f5f5f5;
+      --muted:#9aa0a6;
+    }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;}
+    header{
+      position:sticky;top:0;z-index:10;
+      background:#000; padding:18px 16px; text-align:center;
+      color:var(--gold); font-weight:700; letter-spacing:.08em;
+      box-shadow:0 2px 12px rgba(212,175,55,.3);
+    }
+    .wrap{max-width:1100px;margin:12px auto;padding:0 12px;}
+    .search{
+      display:flex; gap:8px; align-items:center;
+      position:sticky; top:64px; z-index:9; padding:10px 0; background:linear-gradient(180deg,#000,transparent);
+    }
+    input[type="search"]{
+      flex:1; font-size:18px; padding:14px 14px;
+      border:2px solid var(--gold); border-radius:12px; background:#141414; color:var(--text);
+      outline:none; -webkit-appearance:none;
+    }
+    button.clear{
+      border:1px solid var(--gold); background:#141414; color:var(--gold);
+      padding:12px 14px; border-radius:12px; font-size:16px;
+    }
+    .hint{font-size:14px;color:var(--muted);margin:6px 2px 10px;}
+    table{width:100%; border-collapse:collapse; background:var(--panel); border-radius:14px; overflow:hidden;}
+    th,td{padding:14px 10px;border-bottom:1px solid #2a2a2a;}
+    th{background:var(--gold); color:#000; text-transform:uppercase; font-size:14px;}
+    tr:hover{background:#262626}
+    mark{background:rgba(212,175,55,.35); padding:0 2px; border-radius:4px;}
+    .empty{padding:18px; text-align:center; color:var(--muted);}
+    /* Modo “cards” en pantallas muy pequeñas */
+    @media (max-width:520px){
+      th:nth-child(1), td:nth-child(1){width:74px}
+      table{font-size:16px}
+    }
+  </style>
+</head>
+<body>
+  <header>LISTADO DE INVITADOS</header>
+  <div class="wrap">
+    <div class="search">
+      <input id="q" type="search" inputmode="search" enterkeyhint="search"
+             placeholder="Buscar por nombre, apellido o mesa… (ej. Mansilla, Mesa 12)" autocomplete="off">
+      <button class="clear" id="clearBtn" aria-label="Limpiar búsqueda">Limpiar</button>
+    </div>
+    <div class="hint" id="hint">Escribe para filtrar. La búsqueda ignora acentos y acepta pequeños errores.</div>
+
+    <table id="t">
+      <thead><tr><th>No.</th><th>Nombre</th><th>Mesa</th></tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none">Sin resultados. ¿Quiziste decir: <span id="sug"></span>?</div>
+  </div>
+
+<script>
+/* ===== Utilidades ===== */
+const strip = s => (s||"")
+  .toLowerCase()
+  .normalize("NFD").replace(/[\u0300-\u036f]/g,"") // quita acentos
+  .replace(/[^\p{L}\p{N}\s]/gu," ")               // limpia símbolos
+  .replace(/\s+/g," ").trim();
+
+function levenshtein(a,b){
+  a=strip(a); b=strip(b);
+  const m=Array.from({length:a.length+1},(_,i)=>[i]);
+  for(let j=1;j<=b.length;j++) m[0][j]=j;
+  for(let i=1;i<=a.length;i++)
+    for(let j=1;j<=b.length;j++)
+      m[i][j]=a[i-1]==b[j-1]?m[i-1][j-1]:1+Math.min(m[i-1][j],m[i][j-1],m[i-1][j-1]);
+  return m[a.length][b.length];
+}
+
+function highlight(text, q){
+  if(!q) return text;
+  const pat = strip(q).split(" ").filter(Boolean).join("|");
+  if(!pat) return text;
+  const re = new RegExp(`(${pat})`,"gi");
+  return text.replace(re, m => `<mark>${m}</mark>`);
+}
+
+/* ===== Carga CSV ===== */
+async function loadCSV(url){
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("No se pudo cargar invitados.csv");
+  const txt = await res.text();
+  // Soporta coma o punto y coma como separador
+  const lines = txt.replace(/\r/g,"").split("\n").filter(Boolean);
+  const sep = lines[0].includes(";")?";":",";
+  const rows = lines.slice(1).map(l=>{
+    const parts = l.split(sep).map(s=>s.trim());
+    const [No, Nombres, Mesa] = parts;
+    return {No, Nombres, Mesa};
+  });
+  return rows;
+}
+
+/* ===== Render ===== */
+let DATA = [];
+const tb = document.getElementById("tb");
+function render(list, query=""){
+  tb.innerHTML = "";
+  for(const r of list){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${highlight(String(r.No||""), query)}</td>
+      <td>${highlight(r.Nombres||"", query)}</td>
+      <td>${highlight(r.Mesa||"", query)}</td>
+    `;
+    tb.appendChild(tr);
+  }
+}
+
+/* ===== Búsqueda tolerante ===== */
+function scoreRow(row, q){
+  const qn = strip(q);
+  const haystack = strip(`${row.No} ${row.Nombres} ${row.Mesa}`);
+  if(haystack.includes(qn)) return 0; // match directo = mejor
+  // pondera por distancia mínima contra tokens
+  const tokens = haystack.split(" ");
+  const d = Math.min(...tokens.map(t=>levenshtein(t, qn)));
+  return d; // menor es mejor
+}
+
+function search(q){
+  if(!q){ render(DATA); document.getElementById("empty").style.display="none"; return; }
+  // Filtra rápido y ordena por “cercanía”
+  const qn = strip(q);
+  const prelim = DATA
+    .map(r=>({r, s: scoreRow(r, q)}))
+    .filter(x => {
+      const text = strip(`${x.r.No} ${x.r.Nombres} ${x.r.Mesa}`);
+      return text.includes(qn) || x.s <= Math.max(1, Math.floor(qn.length*0.35));
+    })
+    .sort((a,b)=>a.s-b.s)
+    .map(x=>x.r)
+    .slice(0,200); // seguridad por performance
+  render(prelim, q);
+
+  // Sugerencia si vacío
+  const empty = document.getElementById("empty");
+  if(prelim.length===0){
+    empty.style.display="block";
+    // sugerir lo más cercano por Nombres
+    let best = null, bestScore = Infinity;
+    for(const r of DATA){
+      const d = levenshtein(r.Nombres, q);
+      if(d < bestScore){ bestScore = d; best = r; }
+    }
+    document.getElementById("sug").innerText = best ? best.Nombres : "—";
+  } else {
+    empty.style.display="none";
+  }
+}
+
+/* ===== Debounce para móviles ===== */
+function debounce(fn, ms=120){
+  let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); };
+}
+
+/* ===== Inicio ===== */
+(async ()=>{
+  try{
+    DATA = await loadCSV("invitados.csv");   // Debe estar junto a index.html
+    render(DATA);
+  }catch(e){
+    document.getElementById("hint").textContent = "No se pudo cargar invitados.csv. Verifica que el archivo esté junto a index.html.";
+  }
+  const q = document.getElementById("q");
+  const clearBtn = document.getElementById("clearBtn");
+  q.addEventListener("input", debounce(()=>search(q.value)));
+  clearBtn.addEventListener("click", ()=>{ q.value=""; search(""); q.focus(); });
+})();
+</script>
+</body>
+</html>
