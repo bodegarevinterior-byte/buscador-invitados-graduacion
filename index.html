@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Listado de Invitados (compacto)</title>
+<style>
+  /* ======= PALETA ======= */
+  :root{
+    --gold:#d4af37; --bg:#0d0d0d; --panel:#171717; --text:#f5f5f5;
+    --muted:#9aa0a6; --ok:#0f7b3a; --err:#b00020;
+  }
+
+  /* ======= BASE ======= */
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;}
+  *{box-sizing:border-box}
+
+  /* ======= HEADER MÁS COMPACTO ======= */
+  header{
+    position:sticky;top:0;z-index:20;background:#000;color:var(--gold);
+    padding:8px 12px;text-align:center;font-weight:800;letter-spacing:.06em;
+    box-shadow:0 2px 10px rgba(212,175,55,.25); font-size:18px;
+  }
+  .status{
+    margin-top:4px;font-size:11px;color:#ddd;display:flex;gap:8px;justify-content:center;flex-wrap:wrap
+  }
+  .badge{
+    font-size:11px;border:1px solid var(--gold);padding:2px 6px;border-radius:999px;color:var(--gold);white-space:nowrap
+  }
+  .error{position:sticky;top:52px;z-index:30;background:var(--err);color:#fff;
+    padding:6px 8px;text-align:center;display:none;font-size:13px}
+
+  /* ======= CONTENEDOR ======= */
+  .wrap{max-width:1100px;margin:8px auto;padding:0 10px}
+
+  /* ======= BARRA DE BÚSQUEDA Y FILTROS (COMPACTOS) ======= */
+  .bar{
+    display:flex;gap:6px;flex-wrap:wrap;align-items:center;
+    position:sticky;top:92px;z-index:9;padding:6px 0;background:linear-gradient(180deg,#000,transparent)
+  }
+  input[type="search"]{
+    flex:1;font-size:16px;padding:10px 12px;border:2px solid var(--gold);
+    border-radius:10px;background:#141414;color:var(--text);outline:none
+  }
+  .btn{border:1px solid var(--gold);background:#141414;color:var(--gold);
+    padding:8px 10px;border-radius:10px;font-size:13px;line-height:1;white-space:nowrap}
+  .seg{display:flex;gap:6px}
+  .seg .segbtn{border:1px solid #333;color:#ddd;background:#141414}
+  .seg .active{border-color:var(--gold);color:var(--gold)}
+  .stats{font-size:12px;color:var(--muted);margin:4px 2px 8px}
+
+  /* ======= TABLA MÁS DELGADA ======= */
+  table{width:100%;border-collapse:separate;border-spacing:0;background:var(--panel);
+    border-radius:12px;overflow:hidden;font-size:15px}
+  thead th{background:var(--gold);color:#000;text-transform:uppercase;font-size:12px;letter-spacing:.04em}
+  th,td{padding:10px 8px;border-bottom:1px solid #2a2a2a;vertical-align:middle}
+  tr:hover{background:#222}
+  tr.checked{background:rgba(15,123,58,.16)}
+  tr.checked td{border-bottom-color:rgba(15,123,58,.30)}
+  /* columna check: ancho fijo y alineación centrada */
+  th.chk, td.chk{width:64px;text-align:center}
+  .chkWrap{display:flex;align-items:center;justify-content:center;height:100%}
+  input[type="checkbox"]{width:22px;height:22px;vertical-align:middle}
+
+  /* ======= MENSAJE SIN RESULTADOS ======= */
+  .empty{padding:14px;text-align:center;color:var(--muted);font-size:14px}
+
+  /* ======= COMPACTACIÓN EXTRA CUANDO HAY TECLADO (viewport bajo) ======= */
+  @media (max-height:700px){
+    header{padding:6px 10px;font-size:16px}
+    .status{font-size:10px}
+    .bar{top:82px}
+    input[type="search"]{font-size:15px;padding:8px 10px}
+    .btn{padding:6px 8px;font-size:12px}
+    table{font-size:14px}
+    th,td{padding:8px 6px}
+    th.chk, td.chk{width:56px}
+  }
+
+  /* pantallas muy pequeñas de ancho */
+  @media (max-width:420px){
+    table{font-size:14px}
+    th,td{padding:8px 6px}
+    th.chk, td.chk{width:56px}
+  }
+</style>
+</head>
+<body>
+<header>
+  LISTADO DE INVITADOS
+  <div class="status">
+    <span id="badge" class="badge"></span>
+    <span>Estado: <span id="conn">Conectando…</span></span>
+    <span>UID: <span id="uid">—</span></span>
+  </div>
+</header>
+<div id="err" class="error"></div>
+
+<div class="wrap">
+  <div class="bar">
+    <input id="q" type="search" placeholder="Buscar por nombre, apellido o mesa…" autocomplete="off" inputmode="search" enterkeyhint="search">
+    <button id="clear" class="btn">Limpiar</button>
+    <div class="seg" role="tablist" aria-label="Filtro de estado">
+      <button id="flt-all"  class="segbtn active btn" aria-pressed="true">Todos</button>
+      <button id="flt-pend" class="segbtn btn" aria-pressed="false">Pendientes</button>
+      <button id="flt-in"   class="segbtn btn" aria-pressed="false">Ingresados</button>
+    </div>
+  </div>
+
+  <div class="stats" id="stats">Cargando…</div>
+
+  <table id="t">
+    <thead>
+      <tr><th>No.</th><th>Nombre</th><th>Mesa</th><th class="chk">Ingresó</th></tr>
+    </thead>
+    <tbody id="tb"></tbody>
+  </table>
+  <div class="empty" id="empty" style="display:none">Sin resultados.</div>
+</div>
+
+<!-- SDKs compat (sin imports / sin bundler) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+
+<script>
+/* ===== CONFIG (exacta a la que ya te funciona) ===== */
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ_IMs0kUfiiYbL2CHDo50yZLcEySmfiE",
+  authDomain: "graduaciones-2025erase.firebaseapp.com",
+  projectId: "graduaciones-2025erase",
+  storageBucket: "graduaciones-2025erase.appspot.com",
+  messagingSenderId: "815573193665",
+  appId: "1:815573193665:web:a93ff248fe6a919acc1540",
+  measurementId: "G-Q57SRPCRBS"
+};
+firebase.initializeApp(firebaseConfig);
+firebase.firestore().enablePersistence().catch(()=>{});
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+/* ===== Utils ===== */
+const strip = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim();
+function debounce(fn,ms=120){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
+function getParam(n){return new URLSearchParams(location.search).get(n);}
+function showErr(msg){const e=document.getElementById("err"); e.textContent=msg; e.style.display='block'; console.error(msg);}
+
+/* ===== Evento por URL ===== */
+const EVENT_CODE = getParam("event") || "GRAD_JUNIO_2025";
+document.getElementById("badge").textContent = `Evento: ${EVENT_CODE}`;
+
+/* ===== Estado ===== */
+let DATA=[], FILTER="all", CHECKED={};
+const tb=document.getElementById("tb"), stats=document.getElementById("stats");
+const coll = () => db.collection("events").doc(EVENT_CODE).collection("checkins");
+
+/* ===== CSV ===== */
+async function loadCSV(url){
+  const res = await fetch(url); const txt = await res.text();
+  const lines = txt.replace(/\r/g,"").split("\n").filter(Boolean);
+  const sep = lines[0].includes(";")?";":",";
+  return lines.slice(1).map(l=>{
+    const [No,Nombres,Mesa] = l.split(sep).map(s=>s?.trim());
+    const id = String(No||"").trim() || strip(Nombres);
+    return {No,Nombres,Mesa,id};
+  });
+}
+
+/* ===== Tiempo real ===== */
+function listenRealtime(){
+  coll().onSnapshot(snap=>{
+    snap.docChanges().forEach(ch=>{
+      CHECKED[ch.doc.id] = ch.doc.data()?.checked === true;
+    });
+    render(DATA);
+  }, err=>showErr(err.message));
+}
+
+/* ===== Render ===== */
+function render(list){
+  const q = strip(document.getElementById("q").value);
+  let filtered = list.filter(r=>{
+    if(!q) return true;
+    return strip(`${r.No} ${r.Nombres} ${r.Mesa}`).includes(q);
+  });
+  if(FILTER==="in")   filtered = filtered.filter(r=>CHECKED[r.id]);
+  if(FILTER==="pend") filtered = filtered.filter(r=>!CHECKED[r.id]);
+
+  tb.innerHTML = filtered.map(r=>`
+    <tr data-id="${r.id}" class="${CHECKED[r.id]?'checked':''}">
+      <td>${r.No||""}</td>
+      <td>${r.Nombres||""}</td>
+      <td>${r.Mesa||""}</td>
+      <td class="chk"><div class="chkWrap"><input type="checkbox" ${CHECKED[r.id]?'checked':''}></div></td>
+    </tr>`).join("");
+
+  const total=list.length, inCount=Object.values(CHECKED).filter(v=>v).length;
+  stats.textContent = `Pendientes: ${total-inCount} | Ingresados: ${inCount} | Total: ${total}`;
+}
+
+/* ===== Marcar / Desmarcar ===== */
+async function toggle(id){
+  const ref = coll().doc(id);
+  const val = !CHECKED[id];
+  CHECKED[id]=val; render(DATA);
+  await ref.set({checked:val, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge:true});
+}
+
+/* ===== Listeners ===== */
+tb.addEventListener("change", e=>{
+  const tr=e.target.closest("tr"); if(tr) toggle(tr.dataset.id);
+});
+tb.addEventListener("click", e=>{
+  const tr=e.target.closest("tr");
+  if(!tr || e.target.tagName.toLowerCase()==="input") return;
+  toggle(tr.dataset.id);
+});
+const q = document.getElementById("q");
+document.getElementById("clear").onclick = ()=>{ q.value=""; render(DATA); };
+document.getElementById("flt-all").onclick  = ()=>{FILTER="all";  render(DATA);};
+document.getElementById("flt-pend").onclick = ()=>{FILTER="pend"; render(DATA);};
+document.getElementById("flt-in").onclick   = ()=>{FILTER="in";   render(DATA);};
+q.addEventListener("input", debounce(()=>render(DATA)));
+
+/* ===== Inicio ===== */
+(async()=>{
+  try{ await auth.signInAnonymously(); document.getElementById("conn").textContent="Autenticado"; }
+  catch(e){ showErr("Error auth: "+e.message); return; }
+  document.getElementById("uid").textContent = (auth.currentUser && auth.currentUser.uid) || "—";
+  DATA = await loadCSV("invitados.csv");
+  render(DATA);
+  listenRealtime();
+})();
+</script>
+</body>
+</html>
